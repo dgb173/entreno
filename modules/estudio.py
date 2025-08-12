@@ -132,7 +132,7 @@ def get_match_details_from_row_of(row_element, score_class_selector='score', sou
             'ahLine_raw': ah_line_raw if ah_line_raw else '-',
             'matchIndex': match_id,
             'vs': vs_flag,
-            'league_id_hist': None
+            'league_id_hist': row_element.get('name')
         }
     except Exception:
         return None
@@ -502,9 +502,8 @@ def extract_last_home_match_of(soup, team_name, current_league_id=None):
     
     # Sort by date (most recent first)
     def get_date(details):
-        # The date is stored in the 'date' field
-        return details.get('date', '1900-01-01')
-    
+        return _parse_date_ddmmyyyy(details.get('date', ''))
+
     home_team_rows.sort(key=get_date, reverse=True)
     
     most_recent_row = home_team_rows[0]
@@ -518,40 +517,6 @@ def extract_last_home_match_of(soup, team_name, current_league_id=None):
         'handicap_line_raw': most_recent_row.get('ahLine_raw', 'N/A'),
         'match_id': most_recent_row.get('matchIndex', 'N/A')
     }
-
-
-
-    
-    # Encontrar el H2H directo entre los equipos principales
-    specific_match = None
-    for details in filtered_h2h_list:
-        if details['home'].lower() == main_home_team_name.lower() and details['away'].lower() == main_away_team_name.lower():
-            specific_match = details
-            break
-    
-    # Obtener el último partido en casa del equipo local
-    last_home_matches = [m for m in filtered_h2h_list if m['home'].lower() == main_home_team_name.lower()]
-    last_home_match = last_home_matches[0] if last_home_matches else None
-    
-    # Datos para el H2H directo
-    ah1_val = specific_match.get('ahLine', '-') if specific_match else '-'
-    res1_val = specific_match.get('score', '?:?') if specific_match else '?:?'
-    res1_raw_val = specific_match.get('score_raw', '?-?') if specific_match else '?-?'
-    match1_id_h2h_v = specific_match.get('matchIndex') if specific_match else 'N/A'
-    
-    # Datos para el último partido en casa
-    ah6_val = last_home_match.get('ahLine', '-') if last_home_match else '-'
-    res6_val = last_home_match.get('score', '?:?') if last_home_match else '?:?'
-    res6_raw_val = last_home_match.get('score_raw', '?-?') if last_home_match else '?-?'
-    match6_id_h2h_g = last_home_match.get('matchIndex') if last_home_match else 'N/A'
-    h2h_gen_home_name = last_home_match.get('home', "Local (H2H Gen)") if last_home_match else "Local (H2H Gen)"
-    h2h_gen_away_name = last_home_match.get('away', "Visitante (H2H Gen)") if last_home_match else "Visitante (H2H Gen)"
-    
-    return (
-        ah1_val, res1_val, res1_raw_val, match1_id_h2h_v,
-        ah6_val, res6_val, res6_raw_val, match6_id_h2h_g,
-        h2h_gen_home_name, h2h_gen_away_name
-    )
 
 # ... (Mantén el resto del código sin cambios)
 def extract_final_score_of(soup):
@@ -626,37 +591,6 @@ def extract_h2h_data_of(soup, main_home_team_name, main_away_team_name, current_
         h2h_gen_home_name = last_home.get('home', h2h_gen_home_name)
         h2h_gen_away_name = last_home.get('away', h2h_gen_away_name)
 
-    return ah1, res1, res1_raw, match1_id, ah6, res6, res6_raw, match6_id, h2h_gen_home_name, h2h_gen_away_name
-
-    ah1, res1, res1_raw, match1_id = '-', '?:?', '?-?', None
-    ah6, res6, res6_raw, match6_id = '-', '?:?', '?-?', None
-    h2h_gen_home_name, h2h_gen_away_name = "Local (H2H Gen)", "Visitante (H2H Gen)" # Placeholders
-    h2h_table = soup.find("table", id="table_v3")
-    if not h2h_table: return ah1, res1, res1_raw, match1_id, ah6, res6, res6_raw, match6_id, h2h_gen_home_name, h2h_gen_away_name
-    filtered_h2h_list = []
-    if not main_home_team_name or not main_away_team_name:
-        return ah1, res1, res1_raw, match1_id, ah6, res6, res6_raw, match6_id, h2h_gen_home_name, h2h_gen_away_name
-    for row_h2h in h2h_table.find_all("tr", id=re.compile(r"tr3_\d+")):
-        details = get_match_details_from_row_of(row_h2h, score_class_selector='fscore_3', source_table_type='h2h')
-        if not details: continue
-        if current_league_id and details.get('league_id_hist') and details.get('league_id_hist') != str(current_league_id): continue
-        filtered_h2h_list.append(details)
-    if not filtered_h2h_list: return ah1, res1, res1_raw, match1_id, ah6, res6, res6_raw, match6_id, h2h_gen_home_name, h2h_gen_away_name
-    h2h_general_match = filtered_h2h_list[0]
-    ah6 = h2h_general_match.get('ahLine', '-')
-    res6 = h2h_general_match.get('score', '?:?'); res6_raw = h2h_general_match.get('score_raw', '?-?')
-    match6_id = h2h_general_match.get('matchIndex')
-    h2h_gen_home_name = h2h_general_match.get('home', "Local (H2H Gen)") # NUEVO
-    h2h_gen_away_name = h2h_general_match.get('away', "Visitante (H2H Gen)") # NUEVO
-    h2h_local_specific_match = None
-    for d_h2h in filtered_h2h_list:
-        if d_h2h.get('home','').lower() == main_home_team_name.lower() and \
-           d_h2h.get('away','').lower() == main_away_team_name.lower():
-            h2h_local_specific_match = d_h2h; break
-    if h2h_local_specific_match:
-        ah1 = h2h_local_specific_match.get('ahLine', '-')
-        res1 = h2h_local_specific_match.get('score', '?:?'); res1_raw = h2h_local_specific_match.get('score_raw', '?-?')
-        match1_id = h2h_local_specific_match.get('matchIndex')
     return ah1, res1, res1_raw, match1_id, ah6, res6, res6_raw, match6_id, h2h_gen_home_name, h2h_gen_away_name
 def extract_comparative_match_of(soup_for_team_history, table_id_of_team_to_search, team_name_to_find_match_for, opponent_name_to_search, current_league_id, is_home_table):
     if not opponent_name_to_search or opponent_name_to_search == "N/A" or not team_name_to_find_match_for:
@@ -803,7 +737,7 @@ def display_other_feature_ui2():
             # MODIFICADO: Desempaquetar nombres de H2H general
             ah1_val, res1_val, _, match1_id_h2h_v, \
             ah6_val, res6_val, _, match6_id_h2h_g, \
-            h2h_gen_home_name, h2h_gen_away_name = extract_h2h_data_of(soup_main_h2h_page_of, display_home_name, display_away_name, mp_league_id_of)
+            h2h_gen_home_name, h2h_gen_away_name = extract_h2h_data_of(soup_main_h2h_page_of, display_home_name, display_away_name, None)
             col_data["AH_H2H_V"], col_data["Res_H2H_V"] = ah1_val, res1_val
             col_data["AH_H2H_G"], col_data["Res_H2H_G"] = ah6_val, res6_val
             comp_data_L_vs_UV_A = None
