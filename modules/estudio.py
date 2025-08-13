@@ -12,7 +12,7 @@ import pandas as pd
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options as ChromeOptions
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException, ElementClickInterceptedException, NoSuchElementException
 # --- CONFIGURACIÓN GLOBAL ---
@@ -118,7 +118,7 @@ def get_match_details_from_row_of(row_element, score_class_selector='score', sou
 
         # --- AH línea ---
         ah_cell = cells[ah_idx]
-        ah_line_raw = (ah_cell.get('data-o') or ah_cell.get_text(strip=True) or '').strip()
+        ah_line_raw = (ah_cell.get('data-o') or ah_cell.text).strip()
         # si el <td> existe pero está vacío, lo dejamos como '-'
         ah_line_fmt = format_ah_as_decimal_string_of(ah_line_raw) if ah_line_raw not in ['', '-'] else '-'
 
@@ -240,9 +240,7 @@ def display_previous_match_progression_stats(title: str, match_id_str: str | Non
     st.markdown(f"###### 👁️ _Est. Progresión para: {title}_")
     display_match_progression_stats_view(match_id_str, home_name, away_name)
 # --- FUNCIONES DE EXTRACCIÓN DE DATOS DEL PARTIDO (Selenium y BeautifulSoup) ---
-@st.cache_data(ttl=3600)
-def get_rival_a_for_original_h2h_of(main_match_id: int):
-    soup_h2h_page = fetch_soup_requests_of(f"/match/h2h-{main_match_id}")
+def get_rival_a_for_original_h2h_of(soup_h2h_page):
     if not soup_h2h_page: return None, None, None
     table = soup_h2h_page.find("table", id="table_v1")
     if not table: return None, None, None
@@ -256,9 +254,7 @@ def get_rival_a_for_original_h2h_of(main_match_id: int):
                 rival_a_name = rival_tag.text.strip()
                 if rival_a_id_match and rival_a_name: return key_match_id_for_h2h_url, rival_a_id_match.group(1), rival_a_name
     return None, None, None
-@st.cache_data(ttl=3600)
-def get_rival_b_for_original_h2h_of(main_match_id: int):
-    soup_h2h_page = fetch_soup_requests_of(f"/match/h2h-{main_match_id}")
+def get_rival_b_for_original_h2h_of(soup_h2h_page):
     if not soup_h2h_page: return None, None, None
     table = soup_h2h_page.find("table", id="table_v2")
     if not table: return None, None, None
@@ -286,6 +282,12 @@ def get_h2h_details_for_original_logic_of(driver_instance, key_match_id_for_h2h_
     url_to_visit = f"{BASE_URL_OF}/match/h2h-{key_match_id_for_h2h_url}"
     try:
         driver_instance.get(url_to_visit)
+        try:
+            select_element = WebDriverWait(driver_instance, 5).until(EC.presence_of_element_located((By.ID, "hSelect_2")))
+            Select(select_element).select_by_value("8")
+            time.sleep(1)
+        except TimeoutException:
+            pass
         WebDriverWait(driver_instance, SELENIUM_TIMEOUT_SECONDS_OF, poll_frequency=SELENIUM_POLL_FREQUENCY_OF).until(EC.presence_of_element_located((By.ID, "table_v2")))
         time.sleep(0.7); soup_selenium = BeautifulSoup(driver_instance.page_source, "html.parser")
     except TimeoutException: return {"status": "error", "resultado": f"N/A (Timeout esperando table_v2 en {url_to_visit})"}
@@ -663,15 +665,64 @@ def display_other_feature_ui2():
         if not main_match_id_to_process_of:
             results_container.warning("⚠️ Por favor, ingresa un ID de partido válido."); st.stop()
         start_time_of = time.time()
-        with results_container, st.spinner("🔄 Cargando datos iniciales y análisis..."):
-            main_page_url_h2h_view_of = f"/match/h2h-{main_match_id_to_process_of}"
-            soup_main_h2h_page_of = fetch_soup_requests_of(main_page_url_h2h_view_of)
-            if not soup_main_h2h_page_of:
-                st.error(f"❌ No se pudo obtener la página H2H para ID {main_match_id_to_process_of}."); st.stop()
-            mp_home_id_of, mp_away_id_of, mp_league_id_of, mp_home_name_from_script, mp_away_name_from_script, mp_league_name_of = get_team_league_info_from_script_of(soup_main_h2h_page_of)
-            # Usar nombres de script como fallback, pero priorizar los de standings si son más completos
-            home_team_main_standings = extract_standings_data_from_h2h_page_of(soup_main_h2h_page_of, mp_home_name_from_script)
-            away_team_main_standings = extract_standings_data_from_h2h_page_of(soup_main_h2h_page_of, mp_away_name_from_script)
+        with results_container, st.spinner("🔄 Cargando datos con Selenium y aplicando interacciones..."):
+            # --- START: Nueva lógica con Selenium ---
+            driver_actual_of = st.session_state.get('driver_other_feature')
+
+            driver_of_needs_init = driver_actual_of is None
+            if not driver_of_needs_init:
+                try:
+                    _ = driver_actual_of.window_handles
+                    if hasattr(driver_actual_of, 'service') and not driver_actual_of.service.is_connectable():
+                        driver_of_needs_init = True
+                except WebDriverException:
+                    driver_of_needs_init = True
+
+            if driver_of_needs_init:
+                if driver_actual_of:
+                    try:
+                        driver_actual_of.quit()
+                    except Exception:
+                        pass
+                driver_actual_of = get_selenium_driver_of()
+                st.session_state.driver_other_feature = driver_actual_of
+
+            soup_completo = None
+            if driver_actual_of:
+                main_page_url_h2h_view_of = f"{BASE_URL_OF}/match/h2h-{main_match_id_to_process_of}"
+                try:
+                    driver_actual_of.get(main_page_url_h2h_view_of)
+                    WebDriverWait(driver_actual_of, SELENIUM_TIMEOUT_SECONDS_OF).until(
+                        EC.presence_of_element_located((By.ID, "table_v1"))
+                    )
+
+                    for select_id in ["hSelect_1", "hSelect_2", "hSelect_3"]:
+                        try:
+                            select_element = WebDriverWait(driver_actual_of, 3).until(
+                                EC.presence_of_element_located((By.ID, select_id))
+                            )
+                            Select(select_element).select_by_value("8")
+                            time.sleep(0.6)
+                        except TimeoutException:
+                            continue
+
+                    soup_completo = BeautifulSoup(driver_actual_of.page_source, "html.parser")
+
+                except Exception as e:
+                    st.error(f"❌ Error crítico durante la obtención de datos con Selenium: {e}")
+                    st.stop()
+            else:
+                st.error("❌ No se pudo inicializar el WebDriver de Selenium. El análisis no puede continuar.")
+                st.stop()
+
+            if not soup_completo:
+                st.error(f"❌ No se pudo obtener el contenido de la página para el ID {main_match_id_to_process_of} después de las interacciones.")
+                st.stop()
+            # --- END: Nueva lógica con Selenium ---
+
+            mp_home_id_of, mp_away_id_of, mp_league_id_of, mp_home_name_from_script, mp_away_name_from_script, mp_league_name_of = get_team_league_info_from_script_of(soup_completo)
+            home_team_main_standings = extract_standings_data_from_h2h_page_of(soup_completo, mp_home_name_from_script)
+            away_team_main_standings = extract_standings_data_from_h2h_page_of(soup_completo, mp_away_name_from_script)
             display_home_name = home_team_main_standings.get("name") if home_team_main_standings.get("name") != "N/A" else mp_home_name_from_script or "Equipo Local"
             display_away_name = away_team_main_standings.get("name") if away_team_main_standings.get("name") != "N/A" else mp_away_name_from_script or "Equipo Visitante"
             st.markdown(f"<p class='main-title'>📊 Análisis Avanzado de Partido (OF) ⚽</p>", unsafe_allow_html=True)
@@ -698,58 +749,30 @@ def display_other_feature_ui2():
             with col_away_stand:
                 display_standings_card(away_team_main_standings, display_away_name, "away-color")
             st.divider()
-            key_match_id_for_rival_a_h2h, rival_a_id_orig_col3, rival_a_name_orig_col3 = get_rival_a_for_original_h2h_of(main_match_id_to_process_of)
-            match_id_rival_b_game_ref, rival_b_id_orig_col3, rival_b_name_orig_col3 = get_rival_b_for_original_h2h_of(main_match_id_to_process_of)
-            # Aquí podrías añadir la visualización de clasificación de rivales A y B si es necesario, similar a lo anterior.
-            main_match_odds_data_of = {}
-            last_home_match_in_league_of = None
-            last_away_match_in_league_of = None
-            driver_actual_of = st.session_state.driver_other_feature
-            driver_of_needs_init = driver_actual_of is None
-            if not driver_of_needs_init:
-                try:
-                    _ = driver_actual_of.window_handles
-                    if hasattr(driver_actual_of, 'service') and driver_actual_of.service and not driver_actual_of.service.is_connectable(): driver_of_needs_init = True
-                except WebDriverException: driver_of_needs_init = True
-            if driver_of_needs_init:
-                if driver_actual_of is not None:
-                    try: driver_actual_of.quit()
-                    except: pass
-                driver_actual_of = get_selenium_driver_of()
-                st.session_state.driver_other_feature = driver_actual_of
-            if driver_actual_of:
-                try:
-                    driver_actual_of.get(f"{BASE_URL_OF}{main_page_url_h2h_view_of}")
-                    WebDriverWait(driver_actual_of, SELENIUM_TIMEOUT_SECONDS_OF).until(EC.presence_of_element_located((By.ID, "table_v1")))
-                    time.sleep(0.8) # Dar tiempo a que cargue todo
-                    main_match_odds_data_of = get_main_match_odds_selenium_of(driver_actual_of)
-                    if mp_home_id_of and mp_league_id_of and display_home_name != "N/A":
-                         last_home_match_in_league_of = extract_last_match_in_league_of(driver_actual_of, "table_v1", display_home_name, mp_league_id_of, "input#cb_sos1[value='1']", True)
-                    if mp_away_id_of and mp_league_id_of and display_away_name != "N/A":
-                        last_away_match_in_league_of = extract_last_match_in_league_of(driver_actual_of, "table_v2", display_away_name, mp_league_id_of, "input#cb_sos2[value='2']", False)
-                except Exception as e_main_sel_of: st.error(f"❗ Error Selenium: {type(e_main_sel_of).__name__} - {e_main_sel_of}.")
-            else: st.warning("❗ WebDriver no disponible. Cuotas y últimos partidos filtrados podrían faltar.")
+            key_match_id_for_rival_a_h2h, rival_a_id_orig_col3, rival_a_name_orig_col3 = get_rival_a_for_original_h2h_of(soup_completo)
+            match_id_rival_b_game_ref, rival_b_id_orig_col3, rival_b_name_orig_col3 = get_rival_b_for_original_h2h_of(soup_completo)
+            main_match_odds_data_of = get_main_match_odds_selenium_of(driver_actual_of)
+            last_home_match_in_league_of = extract_last_match_in_league_of(driver_actual_of, "table_v1", display_home_name, mp_league_id_of, "input#cb_sos1[value='1']", True)
+            last_away_match_in_league_of = extract_last_match_in_league_of(driver_actual_of, "table_v2", display_away_name, mp_league_id_of, "input#cb_sos2[value='2']", False)
+
             col_data = { "Fin": "?*?", "AH_Act": "?", "G_i": "?"}
-            col_data["Fin"], _, _ = extract_final_score_of(soup_main_h2h_page_of)
-            col_data["Fin"] = col_data["Fin"].replace("*",":") # Asegurar formato con ':'
+            col_data["Fin"], _, _ = extract_final_score_of(soup_completo)
+            col_data["Fin"] = col_data["Fin"].replace("*",":")
             col_data["AH_Act"] = format_ah_as_decimal_string_of(main_match_odds_data_of.get('ah_linea_raw', '?'))
             col_data["G_i"] = format_ah_as_decimal_string_of(main_match_odds_data_of.get('goals_linea_raw', '?'))
-            # MODIFICADO: Desempaquetar nombres de H2H general
+
             ah1_val, res1_val, _, match1_id_h2h_v, \
             ah6_val, res6_val, _, match6_id_h2h_g, \
-            h2h_gen_home_name, h2h_gen_away_name = extract_h2h_data_of(soup_main_h2h_page_of, display_home_name, display_away_name, None)
+            h2h_gen_home_name, h2h_gen_away_name = extract_h2h_data_of(soup_completo, display_home_name, display_away_name, None)
             col_data["AH_H2H_V"], col_data["Res_H2H_V"] = ah1_val, res1_val
             col_data["AH_H2H_G"], col_data["Res_H2H_G"] = ah6_val, res6_val
-            comp_data_L_vs_UV_A = None
-            if last_away_match_in_league_of and display_home_name != "N/A" and last_away_match_in_league_of.get('home_team'):
-                comp_data_L_vs_UV_A = extract_comparative_match_of(soup_main_h2h_page_of, "table_v1", display_home_name, last_away_match_in_league_of.get('home_team'), mp_league_id_of, True)
-            comp_data_V_vs_UL_H = None
-            if last_home_match_in_league_of and display_away_name != "N/A" and last_home_match_in_league_of.get('away_team'):
-                comp_data_V_vs_UL_H = extract_comparative_match_of(soup_main_h2h_page_of, "table_v2", display_away_name, last_home_match_in_league_of.get('away_team'), mp_league_id_of, False)
+
+            comp_data_L_vs_UV_A = extract_comparative_match_of(soup_completo, "table_v1", display_home_name, (last_away_match_in_league_of or {}).get('home_team'), mp_league_id_of, True)
+            comp_data_V_vs_UL_H = extract_comparative_match_of(soup_completo, "table_v2", display_away_name, (last_home_match_in_league_of or {}).get('away_team'), mp_league_id_of, False)
+
             # --- RENDERIZACIÓN DE LA UI ---
             st.markdown("<h2 class='section-header'>🎯 Análisis Detallado del Partido</h2>", unsafe_allow_html=True)
             with st.expander("⚖️ Cuotas Iniciales (Bet365) y Marcador Final (Partido Principal)", expanded=True):
-                # Usar st.metric para cuotas y marcador
                 final_score_display = col_data["Fin"] if col_data["Fin"] != "?:?" else PLACEHOLDER_NODATA
                 st.metric("⚖️ AH (Línea Inicial)", col_data["AH_Act"] if col_data["AH_Act"] != "?" else PLACEHOLDER_NODATA)
                 st.metric("🥅 Goles (Línea Inicial)", col_data["G_i"] if col_data["G_i"] != "?" else PLACEHOLDER_NODATA)
@@ -801,7 +824,7 @@ def display_other_feature_ui2():
                     )
                 else: st.info(details_h2h_col3_of.get('resultado', f"H2H Col3 entre {rival_a_name_orig_col3 or 'RivalA'} y {rival_b_name_orig_col3 or 'RivalB'} no encontrado."))
             st.divider()
-            with st.expander("🔁 Comparativas Indirectas Detalladas", expanded=True): # MODIFICADO: expanded=False por defecto
+            with st.expander("🔁 Comparativas Indirectas Detalladas", expanded=True):
                 comp_col1, comp_col2 = st.columns(2)
                 with comp_col1:
                     st.markdown(f"<h5 class='card-subtitle'><span class='home-color'>{display_home_name}</span> vs. <span class='away-color'>Últ. Rival de {display_away_name}</span></h5>", unsafe_allow_html=True)
@@ -834,7 +857,7 @@ def display_other_feature_ui2():
                         )
                     else: st.info(f"Comparativa '{display_away_name} vs Últ. Rival de {display_home_name}' no disponible.")
             st.divider()
-            with st.expander("🔰 Hándicaps y Resultados Clave (H2H Directos)", expanded=True): # MODIFICADO: expanded=False por defecto
+            with st.expander("🔰 Hándicaps y Resultados Clave (H2H Directos)", expanded=True):
                 h2h_direct_col1, h2h_direct_col2 = st.columns(2)
                 with h2h_direct_col1:
                     st.metric("AH H2H (Local en Casa)", col_data["AH_H2H_V"] if col_data["AH_H2H_V"] != '-' else PLACEHOLDER_NODATA)
