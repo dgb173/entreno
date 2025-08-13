@@ -282,14 +282,16 @@ def get_h2h_details_for_original_logic_of(driver_instance, key_match_id_for_h2h_
     url_to_visit = f"{BASE_URL_OF}/match/h2h-{key_match_id_for_h2h_url}"
     try:
         driver_instance.get(url_to_visit)
+        WebDriverWait(driver_instance, SELENIUM_TIMEOUT_SECONDS_OF).until(EC.presence_of_element_located((By.ID, "table_v2")))
         try:
             select_element = WebDriverWait(driver_instance, 5).until(EC.presence_of_element_located((By.ID, "hSelect_2")))
+            table_v2_element = driver_instance.find_element(By.ID, "table_v2")
             Select(select_element).select_by_value("8")
-            time.sleep(1)
-        except TimeoutException:
+            WebDriverWait(driver_instance, 10).until(EC.staleness_of(table_v2_element))
+            WebDriverWait(driver_instance, 10).until(EC.presence_of_element_located((By.ID, "table_v2")))
+        except (TimeoutException, NoSuchElementException):
             pass
-        WebDriverWait(driver_instance, SELENIUM_TIMEOUT_SECONDS_OF, poll_frequency=SELENIUM_POLL_FREQUENCY_OF).until(EC.presence_of_element_located((By.ID, "table_v2")))
-        time.sleep(0.7); soup_selenium = BeautifulSoup(driver_instance.page_source, "html.parser")
+        soup_selenium = BeautifulSoup(driver_instance.page_source, "html.parser")
     except TimeoutException: return {"status": "error", "resultado": f"N/A (Timeout esperando table_v2 en {url_to_visit})"}
     except Exception as e: return {"status": "error", "resultado": f"N/A (Error Selenium en {url_to_visit}: {type(e).__name__})"}
     if not soup_selenium: return {"status": "error", "resultado": f"N/A (Fallo soup Selenium H2H Original OF en {url_to_visit})"}
@@ -345,8 +347,16 @@ def extract_last_match_in_league_of(driver, table_css_id_str, main_team_name_in_
     try:
         if league_id_filter_value:
             league_checkbox_selector = f"input#checkboxleague{table_css_id_str[-1]}[value='{league_id_filter_value}']"
-            click_element_robust_of(driver, By.CSS_SELECTOR, league_checkbox_selector); time.sleep(1.0)
-        click_element_robust_of(driver, By.CSS_SELECTOR, home_or_away_filter_css_selector); time.sleep(1.0)
+            table_element = driver.find_element(By.ID, table_css_id_str)
+            click_element_robust_of(driver, By.CSS_SELECTOR, league_checkbox_selector)
+            WebDriverWait(driver, 10).until(EC.staleness_of(table_element))
+            WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, table_css_id_str)))
+
+        table_element = driver.find_element(By.ID, table_css_id_str)
+        click_element_robust_of(driver, By.CSS_SELECTOR, home_or_away_filter_css_selector)
+        WebDriverWait(driver, 10).until(EC.staleness_of(table_element))
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, table_css_id_str)))
+
         page_source_updated = driver.page_source; soup_updated = BeautifulSoup(page_source_updated, "html.parser")
         table = soup_updated.find("table", id=table_css_id_str)
         if not table: return None
@@ -698,12 +708,15 @@ def display_other_feature_ui2():
 
                     for select_id in ["hSelect_1", "hSelect_2", "hSelect_3"]:
                         try:
+                            table_id = f"table_v{select_id[-1]}"
                             select_element = WebDriverWait(driver_actual_of, 3).until(
                                 EC.presence_of_element_located((By.ID, select_id))
                             )
+                            table_element = driver_actual_of.find_element(By.ID, table_id)
                             Select(select_element).select_by_value("8")
-                            time.sleep(0.6)
-                        except TimeoutException:
+                            WebDriverWait(driver_actual_of, 10).until(EC.staleness_of(table_element))
+                            WebDriverWait(driver_actual_of, 10).until(EC.presence_of_element_located((By.ID, table_id)))
+                        except (TimeoutException, NoSuchElementException):
                             continue
 
                     soup_completo = BeautifulSoup(driver_actual_of.page_source, "html.parser")
