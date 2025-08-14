@@ -734,6 +734,26 @@ def display_other_feature_ui2():
             comp_data_L_vs_UV_A = extract_comparative_match_of(soup_completo, "table_v1", display_home_name, (last_away_match_in_league_of or {}).get('home_team'), mp_league_id_of, True)
             comp_data_V_vs_UL_H = extract_comparative_match_of(soup_completo, "table_v2", display_away_name, (last_home_match_in_league_of or {}).get('away_team'), mp_league_id_of, False)
 
+            main_match_odds_data_of = get_main_match_odds_selenium_of(driver_actual_of)
+
+            col_data = { "Fin": "?*?", "AH_Act": "?", "G_i": "?"}
+            col_data["Fin"], _, _ = extract_final_score_of(soup_completo)
+            col_data["Fin"] = col_data["Fin"].replace("*",":")
+            col_data["AH_Act"] = format_ah_as_decimal_string_of(main_match_odds_data_of.get('ah_linea_raw', '?'))
+            col_data["G_i"] = format_ah_as_decimal_string_of(main_match_odds_data_of.get('goals_linea_raw', '?'))
+            col_data["AH_H2H_V"], col_data["Res_H2H_V"] = ah1_val, res1_val
+            col_data["AH_H2H_G"], col_data["Res_H2H_G"] = ah6_val, res6_val
+
+            main_match_odds_data_of = get_main_match_odds_selenium_of(driver_actual_of)
+
+            col_data = { "Fin": "?*?", "AH_Act": "?", "G_i": "?"}
+            col_data["Fin"], _, _ = extract_final_score_of(soup_completo)
+            col_data["Fin"] = col_data["Fin"].replace("*",":")
+            col_data["AH_Act"] = format_ah_as_decimal_string_of(main_match_odds_data_of.get('ah_linea_raw', '?'))
+            col_data["G_i"] = format_ah_as_decimal_string_of(main_match_odds_data_of.get('goals_linea_raw', '?'))
+            col_data["AH_H2H_V"], col_data["Res_H2H_V"] = ah1_val, res1_val
+            col_data["AH_H2H_G"], col_data["Res_H2H_G"] = ah6_val, res6_val
+
             # --- OPERACIONES LENTAS RESTANTES (EN PARALELO) ---
             match_ids_to_fetch_stats = {
                 'last_home': (last_home_match_in_league_of.get('match_id') if last_home_match_in_league_of else None, (last_home_match_in_league_of or {}).get('home_team'), (last_home_match_in_league_of or {}).get('away_team')),
